@@ -200,31 +200,35 @@ object InteractiveSession extends Logging {
     }
 
     def datanucleusJars(livyConf: LivyConf, sparkMajorVersion: Int): Seq[String] = {
-      if (sys.env.getOrElse("LIVY_INTEGRATION_TEST", "false").toBoolean) {
-        // datanucleus jars has already been in classpath in integration test
-        Seq.empty
-      } else {
-        val sparkHome = livyConf.sparkHome().get
-        val libdir = sparkMajorVersion match {
-          case 2 =>
-            if (new File(sparkHome, "RELEASE").isFile) {
-              new File(sparkHome, "jars")
-            } else {
-              new File(sparkHome, "assembly/target/scala-2.11/jars")
-            }
-          case v =>
-            throw new RuntimeException(s"Unsupported Spark major version: $sparkMajorVersion")
-        }
-        val jars = if (!libdir.isDirectory) {
-          Seq.empty[String]
+      Option(livyConf.get(LivyConf.DATANUCLEUS_JARS)).map { jars =>
+        jars.split(",").toList
+      }.getOrElse {
+        if (sys.env.getOrElse("LIVY_INTEGRATION_TEST", "false").toBoolean) {
+          // datanucleus jars has already been in classpath in integration test
+          Seq.empty
         } else {
-          libdir.listFiles().filter(_.getName.startsWith("datanucleus-"))
-            .map(_.getAbsolutePath).toSeq
+          val sparkHome = livyConf.sparkHome().get
+          val libdir = sparkMajorVersion match {
+            case 2 =>
+              if (new File(sparkHome, "RELEASE").isFile) {
+                new File(sparkHome, "jars")
+              } else {
+                new File(sparkHome, "assembly/target/scala-2.11/jars")
+              }
+            case v =>
+              throw new RuntimeException(s"Unsupported Spark major version: $sparkMajorVersion")
+          }
+          val jars = if (!libdir.isDirectory) {
+            Seq.empty[String]
+          } else {
+            libdir.listFiles().filter(_.getName.startsWith("datanucleus-"))
+              .map(_.getAbsolutePath).toSeq
+          }
+          if (jars.isEmpty) {
+            warn("datanucleus jars can not be found")
+          }
+          jars
         }
-        if (jars.isEmpty) {
-          warn("datanucleus jars can not be found")
-        }
-        jars
       }
     }
 
@@ -288,18 +292,15 @@ object InteractiveSession extends Logging {
     }
 
     def mergeHiveSiteAndHiveDeps(sparkMajorVersion: Int): Unit = {
-      val yarnFiles = conf.get(LivyConf.SPARK_YARN_DIST_FILES).map(_.split(",")).getOrElse(Array.empty[String])
-      val sparkFiles = conf.get(LivyConf.SPARK_FILES).map(_.split(",")).getOrElse(Array.empty[String])
+      val yarnFiles = conf.get(LivyConf.SPARK_YARN_DIST_FILES).map(_.split(","))
+        .getOrElse(Array.empty[String])
+      val sparkFiles = conf.get(LivyConf.SPARK_FILES).map(_.split(","))
+        .getOrElse(Array.empty[String])
       var files = Array.empty[String]
       if (!sparkFiles.isEmpty || yarnFiles.isEmpty) files = sparkFiles else files = yarnFiles
       hiveSiteFile(files, livyConf) match {
         case (_, true) =>
           debug("Enable HiveContext because hive-site.xml is found in user request.")
-          if (conf.get(LivyConf.SPARK_JARS) != None || conf.get(LivyConf.SPARK_YARN_JARS) == None) {
-            mergeConfList(datanucleusJars(livyConf, sparkMajorVersion), LivyConf.SPARK_JARS)
-          } else {
-            mergeConfList(datanucleusJars(livyConf, sparkMajorVersion), LivyConf.SPARK_YARN_JARS)
-          }
         case (Some(file), false) =>
           debug("Enable HiveContext because hive-site.xml is found under classpath, "
             + file.getAbsolutePath)
@@ -308,14 +309,14 @@ object InteractiveSession extends Logging {
           } else {
             mergeConfList(List(file.getAbsolutePath), LivyConf.SPARK_YARN_DIST_FILES)
           }
-          if (conf.get(LivyConf.SPARK_JARS) != None || conf.get(LivyConf.SPARK_YARN_JARS) == None) {
-            mergeConfList(datanucleusJars(livyConf, sparkMajorVersion), LivyConf.SPARK_JARS)
-          } else {
-            mergeConfList(datanucleusJars(livyConf, sparkMajorVersion), LivyConf.SPARK_YARN_JARS)
-          }
         case (None, false) =>
           warn("Enable HiveContext but no hive-site.xml found under" +
             " classpath or user request.")
+      }
+      if (conf.get(LivyConf.SPARK_JARS) != None || conf.get(LivyConf.SPARK_YARN_JARS) == None) {
+        mergeConfList(datanucleusJars(livyConf, sparkMajorVersion), LivyConf.SPARK_JARS)
+      } else {
+        mergeConfList(datanucleusJars(livyConf, sparkMajorVersion), LivyConf.SPARK_YARN_JARS)
       }
     }
 
@@ -349,11 +350,16 @@ object InteractiveSession extends Logging {
       LivySparkUtils.formatSparkVersion(livyConf.get(LivyConf.LIVY_SPARK_VERSION))
     val scalaVersion = livyConf.get(LivyConf.LIVY_SPARK_SCALA_VERSION)
 
-    if (conf.get(LivyConf.SPARK_JARS) != None || conf.get(LivyConf.SPARK_JARS) == None){
+    if (conf.get(LivyConf.SPARK_JARS) != None || conf.get(LivyConf.SPARK_YARN_JARS) == None) {
       mergeConfList(livyJars(livyConf, scalaVersion), LivyConf.SPARK_JARS)
     } else {
       mergeConfList(livyJars(livyConf, scalaVersion), LivyConf.SPARK_YARN_JARS)
     }
+
+    if (Option(livyConf.get(LivyConf.RSC_JARS)) != None) {
+      mergeConfList(livyConf.get(LivyConf.RSC_JARS).split(","), LivyConf.SPARK_YARN_JARS)
+    }
+
     val enableHiveContext = livyConf.getBoolean(LivyConf.ENABLE_HIVE_CONTEXT)
     // pass spark.livy.spark_major_version to driver
     builderProperties.put("spark.livy.spark_major_version", sparkMajorVersion.toString)

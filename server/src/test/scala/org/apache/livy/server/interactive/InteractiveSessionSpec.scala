@@ -144,7 +144,7 @@ class InteractiveSessionSpec extends FunSpec
         .set(LivyConf.LIVY_SPARK_SCALA_VERSION, "2.10")
       val properties = InteractiveSession.prepareBuilderProp(Map.empty, Spark, livyConf)
       // if livy.rsc.jars is configured in LivyConf, it should be passed to RSCConf.
-      properties(RSCConf.Entry.LIVY_JARS.key()).split(",").toSet === rscJars
+      properties(RSCConf.Entry.LIVY_JARS.key()).split(",").toSet should equal(rscJars)
 
       val rscJars1 = Set(
         "foo.jar",
@@ -154,7 +154,24 @@ class InteractiveSessionSpec extends FunSpec
       val properties1 = InteractiveSession.prepareBuilderProp(
         Map(RSCConf.Entry.LIVY_JARS.key() -> rscJars1.mkString(",")), Spark, livyConf)
       // if rsc jars are configured both in LivyConf and RSCConf, RSCConf should take precedence.
-      properties1(RSCConf.Entry.LIVY_JARS.key()).split(",").toSet === rscJars1
+      properties1(RSCConf.Entry.LIVY_JARS.key()).split(",").toSet should equal(rscJars1)
+    }
+
+    it("should set datanucleus jars through livy conf") {
+      val datanucleusJars = Set(
+        "dummy.jar",
+        "local:///dummy-path/dummy1.jar",
+        "file:///dummy-path/dummy2.jar",
+        "hdfs:///dummy-path/dummy3.jar")
+      val livyConf = new LivyConf(false)
+        .set(LivyConf.ENABLE_HIVE_CONTEXT, true)
+        .set(LivyConf.REPL_JARS, "dummy.jar")
+        .set(LivyConf.RSC_JARS, "dummy2.jar")
+        .set(LivyConf.DATANUCLEUS_JARS, datanucleusJars.mkString(","))
+        .set(LivyConf.LIVY_SPARK_VERSION, sys.env("LIVY_SPARK_VERSION"))
+        .set(LivyConf.LIVY_SPARK_SCALA_VERSION, "2.10")
+      val properties = InteractiveSession.prepareBuilderProp(Map.empty, Spark, livyConf)
+      properties(LivyConf.SPARK_JARS).split(",").toSet should equal(datanucleusJars)
     }
 
     it("should update appId and appInfo and session store") {
