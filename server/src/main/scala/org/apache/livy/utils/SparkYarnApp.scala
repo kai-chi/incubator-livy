@@ -212,6 +212,7 @@ class SparkYarnApp private[utils] (
     (yarnAppState, finalAppStatus) match {
       case (YarnApplicationState.NEW, FinalApplicationStatus.UNDEFINED) |
            (YarnApplicationState.NEW_SAVING, FinalApplicationStatus.UNDEFINED) |
+           (YarnApplicationState.GENERATING_SECURITY_MATERIAL, FinalApplicationStatus.UNDEFINED) |
            (YarnApplicationState.SUBMITTED, FinalApplicationStatus.UNDEFINED) |
            (YarnApplicationState.ACCEPTED, FinalApplicationStatus.UNDEFINED) =>
         SparkApp.State.STARTING
